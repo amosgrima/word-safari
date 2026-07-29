@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Word Safari",
+    "slug": "word-safari",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.amosgrima.wordsafari",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Word Safari lets a grown-up record their own voice saying each word, so your child hears a familiar voice instead of a computer one. Recordings stay on this device."
+      }
+    },
+    "android": {
+      "package": "com.amosgrima.wordsafari"
+    }
+  }
+}
