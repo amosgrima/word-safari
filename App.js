@@ -4,10 +4,22 @@ import { createAudioPlayer, setAudioModeAsync, useAudioRecorder, RecordingPreset
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  ExpoSpeechRecognitionModule as SR,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition';
+/* Speech recognition is optional. It needs native code, so it is unavailable
+   in Expo Go and only present in a real build. Loading it defensively means a
+   missing package can never crash the app — the tutor simply falls back to
+   "tap when you've said it", which still teaches and still feels friendly. */
+let SR = null;
+let useSpeechRecognitionEvent = () => {};   // no-op keeps hook order stable
+try {
+  const _sr = require('expo-speech-recognition');
+  if (_sr && _sr.ExpoSpeechRecognitionModule) {
+    SR = _sr.ExpoSpeechRecognitionModule;
+    if (typeof _sr.useSpeechRecognitionEvent === 'function') {
+      useSpeechRecognitionEvent = _sr.useSpeechRecognitionEvent;
+    }
+  }
+} catch (e) { /* not installed — that is fine */ }
+const canRecognise = () => !!SR;
 
 /* ============================================================
    WORD SAFARI — single file build (Expo SDK 54)
@@ -281,12 +293,13 @@ function TutorRound({ round, pack, theme, together, clips, onDone, onEarn, mark,
   const word = words[turn];
   const targetText = () => strip(word.w, pack.articles);
 
-  useEffect(() => () => { mounted.current = false; try { SR.stop(); } catch (e) {} }, []);
+  useEffect(() => () => { mounted.current = false; try { if (SR) SR.stop(); } catch (e) {} }, []);
 
   /* is on-device recognition usable? if not, the round still works — the child
      just taps to say they said it, and nothing is lost */
   useEffect(() => {
     (async () => {
+      if (!SR) { setCanListen(false); return; }        // Expo Go: no recognition
       try {
         const res = await SR.requestPermissionsAsync();
         setCanListen(!!(res && res.granted));
@@ -304,12 +317,13 @@ function TutorRound({ round, pack, theme, together, clips, onDone, onEarn, mark,
   useEffect(() => { const t = setTimeout(askNow, 700); return () => clearTimeout(t); }, [turn]);
 
   const listen = async () => {
-    if (phase === 'listening') { try { SR.stop(); } catch (e) {} return; }
+    if (phase === 'listening') { try { if (SR) SR.stop(); } catch (e) {} return; }
     if (!canListen) { succeed(false); return; }   // no recognition: reward the attempt
     setHeard('');
     setPhase('listening');
     setLine('');
     try {
+      if (!SR) { succeed(false); return; }
       SR.start({
         lang: pack.locale,
         interimResults: false,
@@ -394,7 +408,7 @@ function TutorRound({ round, pack, theme, together, clips, onDone, onEarn, mark,
         onPress={listen}
         disabled={phase === 'asking' || phase === 'reply'}
       >
-        <Text style={{ fontSize: 40 }}>{phase === 'listening' ? '👂' : '🎤'}</Text>
+        <Text style={{ fontSize: 40 }}>{phase === 'listening' ? '👂' : canListen ? '🎤' : '👏'}</Text>
       </Pressable>
 
       <Pressable style={S2.onward} onPress={() => succeed(false)}>
