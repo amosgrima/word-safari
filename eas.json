@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 5.9.0"
+    "version": ">= 5.9.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "preview": {
@@ -11,6 +12,15 @@
     },
     "production": {
       "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "grimaweddings@icloud.com",
+        "appleTeamId": "L4H3U26Y7D",
+        "ascAppId": "6796485090"
+      }
     }
   }
 }
