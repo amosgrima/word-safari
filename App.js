@@ -4,18 +4,27 @@ import { createAudioPlayer, setAudioModeAsync, useAudioRecorder, RecordingPreset
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  ExpoSpeechRecognitionModule as SR,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 
 /* ============================================================
    WORD SAFARI — single file build (Expo SDK 54)
-   Everything in one file so it can be created from a phone.
 
-   Sound: bundled effects written from base64 to the cache on first run,
-   then played through expo-audio with playsInSilentMode, so audio works
-   even with the phone's mute switch on. That is the one thing a web page
-   could never do, and the reason this is a native app.
+   Sound: bundled effects written from base64 to the cache on first run and
+   played through expo-audio with playsInSilentMode, so audio works even with
+   the phone's mute switch on.
+
+   Voice: prefers a recorded human voice, then the best system voice available
+   (Enhanced/Premium rank above the default "compact" voices).
+
+   Talking with the buddy: speech is transcribed ON DEVICE. The child's voice
+   is never transmitted, so there is no third-party processing of a child's
+   biometric data and nothing that needs consent beyond the microphone itself.
+   The exchange is a small scripted state machine, not a generative model.
    ============================================================ */
 
-/* ---------- sound effects (base64 m4a) ---------- */
 const SFX = {
   correct: "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",
   nope: "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",
@@ -120,8 +129,9 @@ const LEVELS = [
   { at: 6,  game: 'choose',  icon: '👂', name: 'Listen & Find' },
   { at: 14, game: 'missing', icon: '🫥', name: "What's Missing?" },
   { at: 20, game: 'say',     icon: '🎤', name: 'Say It!' },
-  { at: 28, game: 'odd',     icon: '🧐', name: 'Odd One Out' },
-  { at: 40, game: 'big',     icon: '🎴', name: 'Big Match' },
+  { at: 24, game: 'tutor',   icon: '💬', name: 'Talk with your buddy' },
+  { at: 32, game: 'odd',     icon: '🧐', name: 'Odd One Out' },
+  { at: 44, game: 'big',     icon: '🎴', name: 'Big Match' },
 ];
 function levelFor(known) {
   let idx = 0;
@@ -187,7 +197,9 @@ function buildSession(bank, categories, topicIdx) {
 
   if (open.indexOf('missing') >= 0 && pool.length >= 3)
     rounds.push({ t: 'missing', words: shuffle(pool).slice(0, 3) });
-  if (open.indexOf('say') >= 0 && pool.length)
+  if (open.indexOf('tutor') >= 0 && pool.length >= 2)
+    rounds.push({ t: 'tutor', words: shuffle(pool).slice(0, 3) });
+  else if (open.indexOf('say') >= 0 && pool.length)
     rounds.push({ t: 'say', w: newWords[0] || pool[0] });
   if (open.indexOf('odd') >= 0) {
     const others = categories.filter((c) => c.id !== cat.id);
@@ -207,6 +219,199 @@ function buildSession(bank, categories, topicIdx) {
   return { cat, pool, rounds, i: 0, earned: [] };
 }
 
+
+
+/* ============================================================
+   TUTOR — a short spoken exchange with the character.
+
+   Deliberately built WITHOUT a generative model and WITHOUT sending audio
+   anywhere. iOS can transcribe speech on-device, so the child's voice never
+   leaves the phone: no third-party terms to breach, no biometric data
+   transmitted, nothing to obtain consent for.
+
+   The "conversation" is a small scripted state machine with varied, warm
+   responses. For a child of this age that is also better teaching than open
+   conversation — they do not yet have the vocabulary to converse, so the
+   value is in being asked, trying, and being encouraged.
+   ============================================================ */
+
+/* every reply exists in several forms so it never sounds mechanical */
+const TUTOR_LINES = {
+  ask:    ["Can you say it?", "Your turn!", "Now you try!", "What is it?"],
+  great:  ["Perfect!", "That's it!", "Wonderful!", "You said it!"],
+  close:  ["So close!", "Nearly!", "Good try — again?", "Almost!"],
+  quiet:  ["I didn't hear you.", "Can you say it louder?", "Try once more?"],
+  cheer:  ["You're getting good at this!", "Well done!", "Brilliant!"],
+};
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+
+/* forgiving comparison — a small child's pronunciation of a foreign word will
+   never match cleanly, so this is deliberately generous */
+function tidy(t) {
+  return (t || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9 ]/g, '').trim();
+}
+function closeness(heard, target) {
+  const a = tidy(heard), b = tidy(target);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.indexOf(b) >= 0 || b.indexOf(a) >= 0) return 0.9;
+  const m = {};
+  for (const c of a) m[c] = (m[c] || 0) + 1;
+  let hit = 0;
+  for (const c of b) if (m[c] > 0) { m[c]--; hit++; }
+  const overlap = hit / Math.max(a.length, b.length);
+  const lenRatio = Math.min(a.length, b.length) / Math.max(a.length, b.length);
+  return overlap * lenRatio;
+}
+
+/* ---------- the tutor round ---------- */
+function TutorRound({ round, pack, theme, together, clips, onDone, onEarn, mark, sfx, say, speakIt }) {
+  const T = theme;
+  const words = round.words.slice(0, 3);
+  const [turn, setTurn] = useState(0);          // which word we're on
+  const [phase, setPhase] = useState('intro');  // intro | asking | listening | reply | done
+  const [line, setLine] = useState('');
+  const [heard, setHeard] = useState('');
+  const [tries, setTries] = useState(0);
+  const [canListen, setCanListen] = useState(false);
+  const mounted = useRef(true);
+
+  const word = words[turn];
+  const targetText = () => strip(word.w, pack.articles);
+
+  useEffect(() => () => { mounted.current = false; try { SR.stop(); } catch (e) {} }, []);
+
+  /* is on-device recognition usable? if not, the round still works — the child
+     just taps to say they said it, and nothing is lost */
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await SR.requestPermissionsAsync();
+        setCanListen(!!(res && res.granted));
+      } catch (e) { setCanListen(false); }
+    })();
+  }, []);
+
+  /* character speaks, then invites the child */
+  const askNow = () => {
+    setPhase('asking');
+    setLine(pick(TUTOR_LINES.ask));
+    say(word);                                   // hear the word first
+    setTimeout(() => { if (mounted.current) setPhase('ready'); }, 1400);
+  };
+  useEffect(() => { const t = setTimeout(askNow, 700); return () => clearTimeout(t); }, [turn]);
+
+  const listen = async () => {
+    if (phase === 'listening') { try { SR.stop(); } catch (e) {} return; }
+    if (!canListen) { succeed(false); return; }   // no recognition: reward the attempt
+    setHeard('');
+    setPhase('listening');
+    setLine('');
+    try {
+      SR.start({
+        lang: pack.locale,
+        interimResults: false,
+        maxAlternatives: 3,
+        requiresOnDeviceRecognition: true,       // audio never leaves the device
+        continuous: false,
+      });
+    } catch (e) { succeed(false); }
+  };
+
+  /* results arrive through the module's events */
+  useSpeechRecognitionEvent('result', (e) => {
+    if (!mounted.current) return;
+    const alts = (e && e.results ? e.results : []).map(r => r.transcript).filter(Boolean);
+    const best = alts.reduce((s, t) => Math.max(s, closeness(t, targetText())), 0);
+    setHeard(alts[0] || '');
+    judge(best);
+  });
+  useSpeechRecognitionEvent('end', () => {
+    if (!mounted.current) return;
+    if (phase === 'listening') judge(-1);         // heard nothing at all
+  });
+  useSpeechRecognitionEvent('error', () => { if (mounted.current) judge(-1); });
+
+  const judge = (score) => {
+    if (score >= 0.55) { succeed(true); return; }
+    const t = tries + 1;
+    setTries(t);
+    if (score < 0) { setLine(pick(TUTOR_LINES.quiet)); }
+    else { setLine(pick(TUTOR_LINES.close)); }
+    setPhase('reply');
+    speakIt(score < 0 ? pick(TUTOR_LINES.quiet) : pick(TUTOR_LINES.close), { rate: 0.9 });
+    /* after two goes the character simply says it again and moves on — a small
+       child must never get stuck or feel they have failed */
+    setTimeout(() => {
+      if (!mounted.current) return;
+      if (t >= 2) { succeed(false); }
+      else { say(word); setTimeout(() => mounted.current && setPhase('ready'), 1200); }
+    }, 1500);
+  };
+
+  const succeed = (matched) => {
+    setPhase('reply');
+    setLine(matched ? pick(TUTOR_LINES.great) : pick(TUTOR_LINES.cheer));
+    const reply = matched ? pick(TUTOR_LINES.great) : pick(TUTOR_LINES.cheer);
+    sfx('correct');
+    setTimeout(() => { if (mounted.current) speakIt(reply, { rate: 0.95, pitch: 1.15 }); }, 560);
+    mark(word.key, true);
+    onEarn(word);
+    setTries(0);
+    setTimeout(() => {
+      if (!mounted.current) return;
+      if (turn + 1 >= words.length) { sfx('sticker'); onDone(); }
+      else { setTurn(turn + 1); setPhase('intro'); setLine(''); }
+    }, 1600);
+  };
+
+  const S2 = mk(T);
+  const bubble = line || (phase === 'listening' ? '…' : '');
+
+  return (
+    <>
+      {together ? (
+        <View style={S2.coach}>
+          <Text style={S2.coachTxt}>
+            👋  Sit with them and say it together — {targetText()}. Any attempt counts.
+          </Text>
+        </View>
+      ) : null}
+
+      <Text style={{ fontSize: 74 }}>{T.hero}</Text>
+      {bubble ? (
+        <View style={S2.bubble}><Text style={S2.bubbleTxt}>{bubble}</Text></View>
+      ) : null}
+
+      <View style={[S2.big, { marginTop: 14 }]}>
+        <Art w={word} size={92} />
+      </View>
+
+      <Pressable
+        style={[S2.micBig, phase === 'listening' && { backgroundColor: T.mint }]}
+        onPress={listen}
+        disabled={phase === 'asking' || phase === 'reply'}
+      >
+        <Text style={{ fontSize: 40 }}>{phase === 'listening' ? '👂' : '🎤'}</Text>
+      </Pressable>
+
+      <Pressable style={S2.onward} onPress={() => succeed(false)}>
+        <Text style={S2.onwardTxt}>we said it! →</Text>
+      </Pressable>
+
+      <View style={{ flexDirection: 'row', gap: 6, marginTop: 14 }}>
+        {words.map((w, i) => (
+          <View key={w.key} style={{
+            width: 9, height: 9, borderRadius: 5,
+            backgroundColor: i < turn ? T.sun : i === turn ? '#fff' : 'rgba(255,255,255,0.25)',
+          }} />
+        ))}
+      </View>
+    </>
+  );
+}
 
 /* ================= APP ================= */
 const KID_ART = ['🐢','🐰','🦊','🐸','🐥','🐨'];
@@ -237,6 +442,8 @@ export default function App() {
   const players = useRef({});
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [recOn, setRecOn] = useState(false);
+  const [voices, setVoices] = useState([]);
+  const [learnIdx, setLearnIdx] = useState(0);
 
   /* ---------- boot: audio + saved data ---------- */
   useEffect(() => {
@@ -250,6 +457,7 @@ export default function App() {
           players.current[k] = createAudioPlayer({ uri: p });
         }
       } catch (e) {}
+      try { const vs = await Speech.getAvailableVoicesAsync(); setVoices(vs || []); } catch (e) {}
       try {
         const raw = await AsyncStorage.multiGet(['ws.learn','ws.meta','ws.kids','ws.clips']);
         const o = {}; raw.forEach(([k,v]) => { try { o[k] = v ? JSON.parse(v) : null; } catch(e){} });
@@ -264,6 +472,25 @@ export default function App() {
     })();
   }, []);
 
+  /* ---------- learn round: advances on a timer ----------
+     Tapping the picture only REPEATS the word — it must never skip ahead,
+     because small children press repeatedly. Moving on happens on a timer,
+     so mashing the screen is harmless. */
+  const roundNow = session ? session.rounds[session.i] : null;
+  useEffect(() => { setLearnIdx(0); }, [session ? session.i : -1]);
+  useEffect(() => {
+    if (!session || !roundNow || roundNow.t !== 'learn') return;
+    const w = roundNow.words[learnIdx];
+    if (!w) return;
+    const t1 = setTimeout(() => say(w), 260);
+    recordAnswer(bank(), w.key, true);
+    const t2 = setTimeout(() => {
+      if (learnIdx + 1 >= roundNow.words.length) nextRound();
+      else setLearnIdx(learnIdx + 1);
+    }, 2800);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [session ? session.i : -1, learnIdx]);
+
   const pack = PACKS.find(p => p.code === lang) || PACKS[0];
   const T = themeOf(tkey);
   const kkey = () => kids.cur + '/' + lang;
@@ -272,16 +499,65 @@ export default function App() {
   const saveLearn = () => save('ws.learn', learn);
   const setM = (m) => { setMeta(m); save('ws.meta', m); };
 
-  const sfx = (n) => { const p = players.current[n]; if (!p) return; try { p.seekTo(0); p.play(); } catch(e){} };
+  /* 'jingle' and 'unlock' are long musical pieces that talked over the voice,
+     so they are no longer played. The files stay bundled in case a shorter
+     version is wanted later. */
+  const MUSIC = ['jingle', 'unlock'];
+  const sfx = (n) => {
+    if (MUSIC.indexOf(n) >= 0) return;
+    const p = players.current[n]; if (!p) return;
+    try { p.seekTo(0); p.play(); } catch(e){}
+  };
+  /* Voice quality matters: iOS returns the low-quality "compact" voice first,
+     so score every candidate and prefer Enhanced/Premium ones. If the user has
+     downloaded a better voice in iOS Settings, this picks it up automatically. */
+  const voiceScore = (v, locale) => {
+    if (!v || !v.language) return -1;
+    const base = (locale || '').split('-')[0];
+    const vl = v.language.replace('_', '-');
+    let s = 0;
+    if (vl === locale) s += 40;
+    else if (vl.split('-')[0] === base) s += 20;
+    else return -1;
+    const q = String(v.quality || '').toLowerCase();
+    if (q.indexOf('enhanced') >= 0 || q.indexOf('premium') >= 0) s += 30;
+    const n = String(v.name || '').toLowerCase();
+    if (/premium|enhanced|neural|siri/.test(n)) s += 12;
+    if (/compact|eloquence/.test(n)) s -= 25;
+    return s;
+  };
+  const voicesFor = (locale) => voices.filter(v => voiceScore(v, locale) > 0)
+                                      .sort((a, b) => voiceScore(b, locale) - voiceScore(a, locale));
+  const bestVoice = (locale) => {
+    if (meta.voice) { const c = voices.find(v => v.identifier === meta.voice); if (c) return c; }
+    let best = null, bs = -1;
+    voices.forEach(v => { const s = voiceScore(v, locale); if (s > bs) { bs = s; best = v; } });
+    return bs > 0 ? best : null;
+  };
+  const speakIt = (text, opts) => {
+    try {
+      Speech.stop();
+      const v = bestVoice(pack.locale);
+      const o = { language: pack.locale, rate: (opts && opts.rate) || 0.85, pitch: (opts && opts.pitch) || 1.05 };
+      if (v) o.voice = v.identifier;
+      Speech.speak(text, o);
+    } catch (e) {}
+  };
   const say = (w) => {
     const uri = clips[pack.code + ':' + w.key];
     if (uri) { try { const p = createAudioPlayer({ uri }); p.play(); return; } catch(e){} }
-    try { Speech.stop(); Speech.speak(strip(w.w, pack.articles), { language: pack.locale, rate: 0.85, pitch: 1.05 }); } catch(e){}
+    speakIt(strip(w.w, pack.articles));
   };
   const praise = () => {
     const l = pack.praise || ['Bravo'];
-    try { Speech.speak(l[Math.floor(Math.random()*l.length)].replace(/[!¡?¿.]/g,''), { language: pack.locale, rate: 0.95, pitch: 1.2 }); } catch(e){}
+    speakIt(l[Math.floor(Math.random()*l.length)].replace(/[!¡?¿.]/g,''), { rate: 0.95, pitch: 1.2 });
   };
+
+  /* A sound and the voice must never overlap — a child cannot hear the word
+     through a tune. The long musical cues are gone; the short chimes that
+     remain finish before anything is spoken. */
+  const CHIME_MS = { correct: 560, nope: 470, sticker: 900, tap: 130, twinkle: 440 };
+  const sfxThen = (name, fn) => { sfx(name); setTimeout(fn, CHIME_MS[name] || 400); };
 
   const counts = countKnown(bank(), pack.categories);
   const lv = levelFor(counts.have);
@@ -332,11 +608,17 @@ export default function App() {
     let body = null;
 
     if (r.t === 'learn') {
-      const w = r.words[session.li || 0];
+      const w = r.words[Math.min(learnIdx, r.words.length - 1)];
       body = (<>
         <Coach t={'Point and ask: "Can you say ' + strip(w.w, pack.articles) + '?"'} />
-        <Pressable style={S.big} onPress={()=>{ if(!locked()){ say(w); sfx('twinkle'); } }}><Art w={w} size={116}/></Pressable>
+        <Pressable style={S.big} onPress={()=>{ if(!locked()){ say(w); } }}><Art w={w} size={116}/></Pressable>
         <Text style={S.hint}>👆 tap to hear</Text>
+        <View style={{flexDirection:'row',gap:6,marginTop:14}}>
+          {r.words.map((x,i)=>(
+            <View key={x.key} style={{width:9,height:9,borderRadius:5,
+              backgroundColor: i < learnIdx ? T.sun : i === learnIdx ? '#fff' : 'rgba(255,255,255,0.25)'}}/>
+          ))}
+        </View>
       </>);
     }
 
@@ -358,7 +640,7 @@ export default function App() {
                   m.lock = true; const [x,y] = m.up;
                   if (m.deck[x].i === m.deck[y].i) setTimeout(()=>{
                     m.got.push(m.deck[x].i); m.up=[]; m.lock=false;
-                    sfx('correct'); praise(); recordAnswer(bank(), m.deck[x].w.key, true); earn(m.deck[x].w); force(x=>x+1);
+                    sfxThen('correct', praise); recordAnswer(bank(), m.deck[x].w.key, true); earn(m.deck[x].w); force(x=>x+1);
                     if (m.got.length>=m.total){ m.lock=true; setTimeout(()=>{ sfx('sticker'); nextRound(); },650); }
                   },260);
                   else setTimeout(()=>{ sfx('nope'); m.up=[]; m.lock=false; force(x=>x+1); },750);
@@ -385,7 +667,7 @@ export default function App() {
               <Pressable key={o.key} style={[S.opt, wrong && {opacity:0.35}]} onPress={()=>{
                 if (locked()) return;
                 if (o.key === target.key) {
-                  lockFor(900); sfx('correct'); praise();
+                  lockFor(900); sfxThen('correct', praise);
                   recordAnswer(bank(), target.key, true); earn(o);
                   session.wrong = []; session.gone = null;
                   setTimeout(()=>nextRound(), 950);
@@ -401,14 +683,26 @@ export default function App() {
       </>);
     }
 
+    if (r.t === 'tutor') {
+      body = (
+        <TutorRound
+          round={r} pack={pack} theme={T} together={together} clips={clips}
+          sfx={sfx} say={say} speakIt={speakIt}
+          mark={(k, ok) => recordAnswer(bank(), k, ok)}
+          onEarn={earn}
+          onDone={() => nextRound()}
+        />
+      );
+    }
+
     if (r.t === 'say') {
       const ph = ({it:'Questo è ',es:'Esto es ',fr:"C'est ",en:'This is '}[pack.code]||'') + r.w.w;
       body = (<>
         <Coach t={'Say it together: ' + ph} />
         <View style={S.big}><Art w={r.w} size={96}/></View>
-        <Pressable style={S.phrase} onPress={()=>{ try{ Speech.speak(ph,{language:pack.locale,rate:0.8}); }catch(e){} }}>
+        <Pressable style={S.phrase} onPress={()=>speakIt(ph, { rate: 0.8 })}>
           <Text style={S.phraseTxt}>🔊  {ph}</Text></Pressable>
-        <Pressable style={S.onward} onPress={()=>{ if(!locked()){ sfx('correct'); recordAnswer(bank(), r.w.key, true); earn(r.w); nextRound(); } }}>
+        <Pressable style={S.onward} onPress={()=>{ if(!locked()){ sfxThen('correct', praise); recordAnswer(bank(), r.w.key, true); earn(r.w); setTimeout(nextRound, 700); } }}>
           <Text style={S.onwardTxt}>we said it! →</Text></Pressable>
       </>);
     }
@@ -534,6 +828,33 @@ export default function App() {
         <Pressable style={[S.card,{backgroundColor:T.mint}]} onPress={()=>setScreen('record')}>
           <Text style={[S.cardT,{color:'#16233F'}]}>🎙  Record your own voice</Text>
           <Text style={[S.small,{color:'rgba(0,0,0,0.6)'}]}>{Object.keys(clips).filter(k=>k.indexOf(pack.code+':')===0).length} recorded</Text></Pressable>
+        <View style={S.card}>
+          <Text style={S.cardT}>Voice</Text>
+          <Text style={S.small}>Tap a voice to hear it, then pick the one you like. ⭐ marks higher-quality voices.</Text>
+          <Pressable style={[S.vRow, !meta.voice && S.vOn]} onPress={()=>{ setM({...meta, voice: null}); }}>
+            <Text style={[S.vName, !meta.voice && {color:'#16233F'}]}>{!meta.voice ? '✓ ' : ''}Best available</Text>
+          </Pressable>
+          {voicesFor(pack.locale).slice(0,6).map(v=>{
+            const on = meta.voice === v.identifier;
+            const star = /enhanced|premium|neural/i.test(String(v.quality)+String(v.name)) ? ' ⭐' : '';
+            return (
+              <View key={v.identifier} style={{flexDirection:'row',alignItems:'center',gap:8}}>
+                <Pressable style={[S.vRow,{flex:1}, on && S.vOn]} onPress={()=>setM({...meta, voice: v.identifier})}>
+                  <Text style={[S.vName, on && {color:'#16233F'}]} numberOfLines={1}>{on?'✓ ':''}{v.name}{star}</Text>
+                </Pressable>
+                <Pressable style={S.icon} onPress={()=>{ try{ Speech.stop(); Speech.speak(
+                    pack.categories[0].words[0].w, { language: pack.locale, voice: v.identifier, rate: 0.85 }); }catch(e){} }}>
+                  <Text style={{fontSize:16}}>🔊</Text></Pressable>
+              </View>
+            );
+          })}
+          {voicesFor(pack.locale).length === 0 && <Text style={S.small}>No {pack.englishName} voice found on this device.</Text>}
+          <Text style={[S.small,{marginTop:10,paddingTop:10,borderTopWidth:1,borderTopColor:'rgba(255,255,255,0.12)'}]}>
+            For a much better voice: iPhone <Text style={{color:'#fff'}}>Settings → Accessibility → Spoken Content →
+            Voices</Text>, choose the language and download an <Text style={{color:'#fff'}}>Enhanced</Text> or
+            <Text style={{color:'#fff'}}> Premium</Text> voice. It is free and the app will use it automatically.
+          </Text>
+        </View>
         <View style={S.card}><Text style={S.cardT}>Games unlocked</Text>
           {LEVELS.map((l,i)=>(<View key={l.game} style={[S.lRow,{opacity:i<=lv.idx?1:0.45}]}>
             <Text style={{fontSize:17}}>{i<=lv.idx?l.icon:'🔒'}</Text><Text style={S.lName}>{l.name}</Text>
@@ -644,6 +965,12 @@ const mk = (T) => StyleSheet.create({
   kidRow:{flexDirection:'row',flexWrap:'wrap',gap:11,justifyContent:'center',marginBottom:14},
   kidC:{backgroundColor:'rgba(255,255,255,0.12)',borderRadius:20,paddingVertical:14,paddingHorizontal:20,alignItems:'center',minWidth:98},
   bigWord:{color:'#fff',fontSize:28,fontWeight:'900',marginBottom:3},
+  bubble:{backgroundColor:'#fff',borderRadius:20,paddingVertical:11,paddingHorizontal:18,marginTop:10,maxWidth:300},
+  bubbleTxt:{color:'#16233F',fontWeight:'900',fontSize:17,textAlign:'center'},
+  micBig:{width:104,height:104,borderRadius:52,backgroundColor:'#FF6B4A',alignItems:'center',justifyContent:'center',marginTop:20},
+  vRow:{backgroundColor:'rgba(255,255,255,0.12)',borderRadius:14,paddingVertical:11,paddingHorizontal:14,marginTop:8},
+  vOn:{backgroundColor:'#fff'},
+  vName:{color:'#fff',fontWeight:'800',fontSize:13.5},
   recB:{width:96,height:96,borderRadius:48,alignItems:'center',justifyContent:'center',marginVertical:16},
   overlay:{position:'absolute',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(10,20,45,0.9)',alignItems:'center',justifyContent:'center',padding:22},
   uCard:{borderRadius:30,padding:30,alignItems:'center',maxWidth:330},
